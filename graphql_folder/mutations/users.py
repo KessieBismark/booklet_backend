@@ -75,7 +75,7 @@ def validate_input_fields(input_data: dict, input_validation_config: dict) -> No
         }
         
         expected = type_map.get(expected_type)
-        if expected and not isinstance(value, expected):
+        if value is not None and expected and not isinstance(value, expected):
             raise GraphQLError(
                 f"Field '{field_name}' must be {expected_type}, got {type(value).__name__}",
                 extensions={"code": "VALIDATION_ERROR", "field": field_name}
@@ -133,7 +133,7 @@ async def check_unique_constraints(
             )
 
 
-def get_protected_context(info: Info, info_name: str = "mutation") -> dict:
+async def get_protected_context(info: Info, info_name: str = "mutation") -> dict:
     """
     Get and validate user context with authorization.
     
@@ -148,7 +148,7 @@ def get_protected_context(info: Info, info_name: str = "mutation") -> dict:
         GraphQLError: If user is not authenticated
     """
     try:
-        user_id = get_user_id(info)
+        user_id = await get_user_id(info)
         logger.debug(f"User {user_id} authorized for {info_name}")
         return {"user_id": user_id}
     except GraphQLError:
@@ -407,7 +407,7 @@ class UsersMutation:
             GraphQLError: If old password incorrect or user not found
         """
         try:
-            context = get_protected_context(info, "change_password")
+            context = await get_protected_context(info, "change_password")
             user_id = context["user_id"]
 
             # ====== Extract and validate inputs ======
@@ -535,7 +535,7 @@ class UsersMutation:
             GraphQLError: If not authorized or record not found
         """
         try:
-            context = get_protected_context(info, "update_users")
+            context = await get_protected_context(info, "update_users")
             await require_permission_for(info, "users", "update")
             user_id = context["user_id"]
 
@@ -617,7 +617,7 @@ class UsersMutation:
             GraphQLError: If not authorized or record not found
         """
         try:
-            context = get_protected_context(info, "delete_users")
+            context = await get_protected_context(info, "delete_users")
             await require_permission_for(info, "users", "delete")
             user_id = context["user_id"]
 

@@ -1,84 +1,60 @@
-version: '3.8'
+name: stack
 
 services:
-  # PostgreSQL Database
-  postgres:
+  db:
     image: postgres:16-alpine
-    container_name: booklet_db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: dev_password_change_in_production
-      POSTGRES_DB: booklet_db
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_SUPER_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - booklet_network
+    mem_limit: 320m
+    networks: [internal]
+    # NOTE: no `ports:` — Postgres stays private to the Docker network.
 
-  # Redis Cache (optional)
-  redis:
-    image: redis:7-alpine
-    container_name: booklet_cache
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - booklet_network
-
-  # Application
-  app:
-    build: .
-    container_name: booklet_api
-    environment:
-      # Database Configuration
-      DATABASE_URL: 
-      DB_DRIVER: 
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: dev_password_change_in_production
-      DB_NAME: booklet_db
-      
-      # Security
-      SECRET_KEY: ${SECRET_KEY}
-      PASSWORD_ENCRYPTION_KEY: ${PASSWORD_ENCRYPTION_KEY}
-      
-      # Application Settings
-      APP_NAME: booklet
-      ENVIRONMENT: development
-      DEBUG: "true"
-      AUTH_TYPE: JWT
-      CONNECTION_TYPE: Asynchronous
-      
-      # Redis Configuration
-      REDIS_URL: redis://booklet_cache:6379/0
-    ports:
-      - "8000:8000"
+  booklet:
+    build: ./booklet_backend
+    restart: unless-stopped
+    env_file: ./env/booklet.env
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      db: { condition: service_healthy }
+    expose: ["8000"] # internal only
+    mem_limit: 200m
+    networks: [internal]
+
+  app2:
+    build: ./app2_backend
+    restart: unless-stopped
+    env_file: ./env/app2.env
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+    depends_on:
+      db: { condition: service_healthy }
+    expose: ["8000"]
+    mem_limit: 200m
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
     volumes:
-      - .:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    networks:
-      - booklet_network
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 64m
+    networks: [internal]
 
 networks:
-  booklet_network:
-    driver: bridge
+  internal:
 
 volumes:
-  postgres_data:
-    driver: local
+  pgdata:
+  caddy_data:
+  caddy_config:

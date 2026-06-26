@@ -27,7 +27,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from strawberry.exceptions import GraphQLError
-
 # Import database configuration
 try:
     from config.dbconfig import (
@@ -400,10 +399,11 @@ async def get_graphql_context(request: Request) -> Dict[str, Any]:
     
     # Check if authentication is configured
     if not AUTH_UTILS_LOADED:
-        raise GraphQLError(
-            "Authentication not configured",
-            extensions={"code": "AUTHENTICATION_ERROR"}
-        )
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        # raise GraphQLError(
+        #     "Authentication not configured",
+        #     extensions={"code": "AUTHENTICATION_ERROR"}
+        # )
     
     # Invalid format
     if not auth_header.startswith('Bearer '):

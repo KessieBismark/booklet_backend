@@ -12,7 +12,7 @@ class Users(Base):
     avatar_url = Column(Text)
     locale = Column(Text, default='en')
     theme = Column(Text, default='system')
-    font_scale = Column(String, default=1)
+    font_scale = Column(String, default='1.0')
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     last_active_at = Column(TIMESTAMP(timezone=True))
