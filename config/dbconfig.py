@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse, urlunparse
 
-from sqlalchemy import text
+from sqlalchemy import text, event
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
     async_sessionmaker,
@@ -363,6 +363,43 @@ def get_connect_args() -> Dict[str, Any]:
 ASYNC_DATABASE_URL = get_database_url()
 CONNECT_ARGS = get_connect_args()
 
+
+def _scrub_null_bytes(value):
+    """Recursively remove NUL bytes from any string inside a parameter set.
+
+    PostgreSQL TEXT/VARCHAR cannot store ``\x00`` ("invalid byte sequence for
+    encoding UTF8"), so a single dirty string — e.g. text extracted from a PDF
+    that carries NUL bytes — would abort the whole INSERT and surface as a
+    generic database error. Scrubbing at the cursor boundary keeps every
+    write path (ORM and Core alike) working with dirty input.
+    """
+    if isinstance(value, str):
+        return value.replace('\x00', '')
+    if isinstance(value, dict):
+        return {k: _scrub_null_bytes(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_scrub_null_bytes(v) for v in value]
+    return value
+
+
+def _scrub_parameters(conn, cursor, statement, parameters, context, executemany):
+    """Sanitize bound parameters right before they reach the database driver.
+
+    Returns ``(statement, parameters)`` — ``before_cursor_execute`` is
+    registered with ``retval=True`` so the scrubbed parameter set replaces
+    the original (parameters may be an immutable tuple on the asyncpg path).
+    """
+    if parameters is None:
+        return statement, None
+    if isinstance(parameters, dict):
+        return statement, {k: _scrub_null_bytes(v) for k, v in parameters.items()}
+    if isinstance(parameters, tuple):
+        return statement, tuple(_scrub_null_bytes(v) for v in parameters)
+    if isinstance(parameters, list):
+        return statement, [_scrub_null_bytes(v) for v in parameters]
+    return statement, parameters
+
+
 engine: AsyncEngine = create_async_engine(
     ASYNC_DATABASE_URL,
     # Connection pool settings
@@ -383,6 +420,10 @@ engine: AsyncEngine = create_async_engine(
     # Performance
     isolation_level="READ_COMMITTED",
 )
+
+# Scrub NUL bytes from every write at the cursor boundary (see _scrub_null_bytes).
+# retval=True lets the handler return the replacement (statement, parameters).
+event.listen(engine.sync_engine, "before_cursor_execute", _scrub_parameters, retval=True)
 
 logger.info(
     f"Database engine initialized: "
